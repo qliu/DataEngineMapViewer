@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html>
+<head>
+<link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.7.3/leaflet.css" />
+<script src="//code.jquery.com/jquery-1.11.0.min.js"></script>
+<script src="http://cdn.leafletjs.com/leaflet-0.7.3/leaflet.js"></script>
+<style>
+.info {
+    padding: 6px 8px;
+    font: 14px/16px Arial, Helvetica, sans-serif;
+    background: white;
+    background: rgba(255,255,255,0.8);
+    box-shadow: 0 0 15px rgba(0,0,0,0.2);
+    border-radius: 5px;
+}
+.info h4 {
+    margin: 0 0 5px;
+    color: #777;
+}
+.legend {
+    line-height: 18px;
+    color: #555;
+	font-size: 10px;
+}
+.legend i {
+    width: 18px;
+    height: 18px;
+    float: left;
+    margin-right: 8px;
+    opacity: 0.7;
+}
+</style>
+</head>
+<body>
+<a id="downloadData" href="#">Download</a>
+<div id="map" style="width:800px;height:600px;"></div>
+<div id="results"></div>
+<script>
+  $.ajax({
+    url:"http://codataengine.org/api/dataset/1438.jsonp",
+	jsonp: "callback",
+	dataType: "jsonp",
+	data:{
+	  key:"1d2321e8fdc9bfa31802321fda1843cc.14"
+	},
+	success:function(response){ 
+		var map = L.map('map',{worldCopyJump:true});
+		map.setView([39.19153,-106.0897319], 7);
+		map.worldCopyJump = true;
+		var basemap = L.tileLayer(
+		'https://{s}.tiles.mapbox.com/v3/{id}/{z}/{x}/{y}.png', {
+		maxZoom: 18,
+		attribution: 'Map data &copy; <a href="http://openstreetmap.org">OpenStreetMap</a> contributors, ' +
+					'<a href="http://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, ' +
+					'Imagery © <a href="http://mapbox.com">Mapbox</a>',
+		id: 'examples.map-20v6611k',
+		});
+		basemap.addTo(map);
+		
+		var info = L.control();
+
+		info.onAdd = function (map) {
+			this._div = L.DomUtil.create('div', 'info'); // create a div with a class "info"
+			this.update();
+			return this._div;
+		};
+
+		// method that we will use to update the control based on feature properties passed
+		info.update = function (props) {
+			this._div.innerHTML = '<h4>Median Household Income</h4>' +  (props ?
+				'<b>' + props.county + '</b><br /> $ ' + props.medianincome + ''
+				: 'Hover over a county');
+		};
+
+		info.addTo(map);
+
+		// JS ------->
+		finalgeojson = [];
+		$.each(response,function(index,value){
+		var geo = value["county_state_geography_2010.geom"];
+		geo = geo.replace("MULTIPOLYGON","").replace("(((","[[[[").replace(")))","]]]]").replace(/\)\),\(\(/g,"],[").replace(/\),\(/g,"],[").replace(/,/g,"],[").replace(/ /g,",");
+		var feature = {
+		"type":"Feature",
+		"properties":{
+		  "county":value["county_state_geography_2010.name10"],
+		  "medianincome":value["county_state_acs5yrmedianhouseholdincome_2010.b19013_001"]
+		},
+		"geometry":{
+		  "type":"MultiPolygon",
+		  "coordinates":$.parseJSON(geo)
+		}
+		};
+		finalgeojson.push(feature);
+		});
+		
+		mapData = {"type":"FeatureCollection","features":finalgeojson};
+		// <--------- JS
+		
+		function getColor(d) {
+			return d > 100000 ? '#800026' :
+				   d > 70000  ? '#BD0026' :
+				   d > 60000  ? '#E31A1C' :
+				   d > 50000  ? '#FC4E2A' :
+				   d > 40000  ? '#FD8D3C' :
+				   d > 30000   ? '#FEB24C' :
+				   d > 10000   ? '#FED976' :
+							  '#FFEDA0';
+		}
+		
+		function style(feature) {
+			return {
+				fillColor: getColor(feature.properties.medianincome),
+				weight: 2,
+				opacity: 1,
+				color: 'white',
+				dashArray: '3',
+				fillOpacity: 0.7
+			};
+		}
+		
+		function highlightFeature(e) {
+			var layer = e.target;
+
+			layer.setStyle({
+				weight: 5,
+				color: '#666',
+				dashArray: '',
+				fillOpacity: 0.7
+			});
+
+			if (!L.Browser.ie && !L.Browser.opera) {
+				layer.bringToFront();
+			}
+			
+			info.update(layer.feature.properties);
+		}
+		
+		function resetHighlight(e) {
+			geojson.resetStyle(e.target);
+			info.update();
+		}
+		
+		function zoomToFeature(e) {
+			map.fitBounds(e.target.getBounds());
+		}
+		
+		function onEachFeature(feature, layer) {
+			layer.on({
+				mouseover: highlightFeature,
+				mouseout: resetHighlight,
+				click: zoomToFeature
+			});
+		}
+
+		geojson = L.geoJson(mapData, {
+			style: style,
+			onEachFeature: onEachFeature
+		}).addTo(map);
+		
+		var legend = L.control({position: 'bottomleft'});
+
+		legend.onAdd = function (map) {
+
+			var div = L.DomUtil.create('div', 'info legend'),
+				grades = [0, 10000, 30000, 40000, 50000, 60000, 70000, 100000],
+				labels = [];
+
+			// loop through our density intervals and generate a label with a colored square for each interval
+			for (var i = 0; i < grades.length; i++) {
+				div.innerHTML +=
+					'<i style="background:' + getColor(grades[i] + 1) + '"></i> ' +
+					grades[i] + (grades[i + 1] ? '&ndash;' + grades[i + 1] + '<br>' : '+');
+			}
+
+			return div;
+		};
+
+		legend.addTo(map);
+
+	}
+  });
+  $("#downloadData").click(function(){
+	var dt = new Date($.now());
+	var dateStr = dt.toISOString().substr(0,10).replace(/-/g,"");
+	var timeStr = dt.toTimeString().substr(0,8).replace(/:/g,"");
+	var dtStr = dateStr + timeStr;
+	this.download = "gjdownlaod_" + dtStr + ".json";
+    this.href = "data:text/plain;charset=UTF-8," + datajson;
+  });
+  
+
+</script>
+</body>
+</html>
